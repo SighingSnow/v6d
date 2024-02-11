@@ -45,6 +45,9 @@ class ResolverContext:
     def __str__(self) -> str:
         return str(self._factory)
 
+    def __repr__(self) -> str:
+        return repr(self._factory)
+
     @property
     def parent_context(self) -> "ResolverContext":
         return self._parent_context
@@ -191,7 +194,7 @@ def get(
     name: Optional[str] = None,
     resolver: Optional[ResolverContext] = None,
     fetch: bool = False,
-    **kw
+    **kwargs
 ):
     """Get vineyard object as python value.
 
@@ -229,16 +232,11 @@ def get(
     elif name is not None:
         object_id = client.get_name(name)
 
-    # run resolver
-    obj = client.get_object(object_id, fetch=fetch)
-    meta = obj.meta
-    if not meta.islocal and not meta.isglobal:
-        raise ValueError(
-            "Not a local object: for remote object, you can only get its metadata"
-        )
+    obj = client.get_object(object_id)
+
     if resolver is None:
         resolver = get_current_resolvers()
-    return resolver(obj, __vineyard_client=client, **kw)
+    return resolver(obj, __vineyard_client=client, **kwargs)
 
 
 setattr(IPCClient, 'get', get)

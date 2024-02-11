@@ -36,6 +36,7 @@ limitations under the License.
 #include "client/client.h"
 #include "client/ds/blob.h"
 #include "common/util/logging.h"  // IWYU pragma: keep
+#include "common/util/macros.h"
 
 namespace vineyard {
 
@@ -108,10 +109,43 @@ class ArrowArrayBuilderVisitor {
     return Status::OK();
   }
 
+  Status Visit(const arrow::Date32Type*) {
+    builder_ = std::make_shared<Date32Builder>(client_, array_);
+    return Status::OK();
+  }
+
+  Status Visit(const arrow::Date64Type*) {
+    builder_ = std::make_shared<Date64Builder>(client_, array_);
+    return Status::OK();
+  }
+
+  Status Visit(const arrow::Time32Type*) {
+    builder_ = std::make_shared<Time32Builder>(client_, array_);
+    return Status::OK();
+  }
+
+  Status Visit(const arrow::Time64Type*) {
+    builder_ = std::make_shared<Time64Builder>(client_, array_);
+    return Status::OK();
+  }
+
+  Status Visit(const arrow::TimestampType*) {
+    builder_ = std::make_shared<TimestampBuilder>(client_, array_);
+    return Status::OK();
+  }
+
   Status Visit(const arrow::StringType*) {
     builder_ = std::make_shared<StringArrayBuilder>(client_, array_);
     return Status::OK();
   }
+
+#if defined(ARROW_VERSION) && ARROW_VERSION >= 15000000
+  Status Visit(const arrow::StringViewType* type) {
+    return Status::NotImplemented(
+        "Type not implemented: " + std::to_string(type->id()) + ", " +
+        type->ToString());
+  }
+#endif
 
   Status Visit(const arrow::LargeStringType*) {
     builder_ = std::make_shared<LargeStringArrayBuilder>(client_, array_);
@@ -122,6 +156,14 @@ class ArrowArrayBuilderVisitor {
     builder_ = std::make_shared<BinaryArrayBuilder>(client_, array_);
     return Status::OK();
   }
+
+#if defined(ARROW_VERSION) && ARROW_VERSION >= 15000000
+  Status Visit(const arrow::BinaryViewType* type) {
+    return Status::NotImplemented(
+        "Type not implemented: " + std::to_string(type->id()) + ", " +
+        type->ToString());
+  }
+#endif
 
   Status Visit(const arrow::LargeBinaryType*) {
     builder_ = std::make_shared<LargeBinaryArrayBuilder>(client_, array_);
@@ -137,10 +179,28 @@ class ArrowArrayBuilderVisitor {
     builder_ = std::make_shared<ListArrayBuilder>(client_, array_);
     return Status::OK();
   }
+
+#if defined(ARROW_VERSION) && ARROW_VERSION >= 15000000
+  Status Visit(const arrow::ListViewType* type) {
+    return Status::NotImplemented(
+        "Type not implemented: " + std::to_string(type->id()) + ", " +
+        type->ToString());
+  }
+#endif
+
   Status Visit(const arrow::LargeListType*) {
     builder_ = std::make_shared<LargeListArrayBuilder>(client_, array_);
     return Status::OK();
   }
+
+#if defined(ARROW_VERSION) && ARROW_VERSION >= 15000000
+  Status Visit(const arrow::LargeListViewType* type) {
+    return Status::NotImplemented(
+        "Type not implemented: " + std::to_string(type->id()) + ", " +
+        type->ToString());
+  }
+#endif
+
   Status Visit(const arrow::FixedSizeListType*) {
     builder_ = std::make_shared<FixedSizeListArrayBuilder>(client_, array_);
     return Status::OK();
@@ -295,10 +355,15 @@ std::shared_ptr<arrow::Array> CastToArray(std::shared_ptr<Object> object) {
 
 template <typename T>
 void NumericArray<T>::PostConstruct(const ObjectMeta& meta) {
+  std::shared_ptr<arrow::DataType> data_type;
+  if (this->data_type_.empty()) {
+    data_type = ConvertToArrowType<T>::TypeValue();
+  } else {
+    data_type = type_name_to_arrow_type(this->data_type_);
+  }
   this->array_ = std::make_shared<ArrayType>(
-      ConvertToArrowType<T>::TypeValue(), this->length_,
-      this->buffer_->ArrowBufferOrEmpty(), this->null_bitmap_->ArrowBuffer(),
-      this->null_count_, this->offset_);
+      data_type, this->length_, this->buffer_->ArrowBufferOrEmpty(),
+      this->null_bitmap_->ArrowBuffer(), this->null_count_, this->offset_);
 }
 
 template class NumericArray<int8_t>;
@@ -311,14 +376,15 @@ template class NumericArray<uint32_t>;
 template class NumericArray<uint64_t>;
 template class NumericArray<float>;
 template class NumericArray<double>;
+template class NumericArray<arrow::Date32Type>;
+template class NumericArray<arrow::Date64Type>;
+template class NumericArray<arrow::Time32Type>;
+template class NumericArray<arrow::Time64Type>;
+template class NumericArray<arrow::TimestampType>;
 
 template <typename T>
 NumericArrayBuilder<T>::NumericArrayBuilder(Client& client)
-    : NumericArrayBaseBuilder<T>(client) {
-  std::shared_ptr<ArrayType> array;
-  CHECK_ARROW_ERROR(ArrowBuilderType<T>{}.Finish(&array));
-  this->arrays_.emplace_back(array);
-}
+    : NumericArrayBaseBuilder<T>(client) {}
 
 template <typename T>
 NumericArrayBuilder<T>::NumericArrayBuilder(
@@ -353,12 +419,19 @@ template <typename T>
 Status NumericArrayBuilder<T>::Build(Client& client) {
   memory::VineyardMemoryPool pool(client);
   std::shared_ptr<arrow::Array> array;
-  RETURN_ON_ARROW_ERROR_AND_ASSIGN(
-      array, arrow_shim::Concatenate(std::move(this->arrays_), &pool));
+  if (this->arrays_.empty()) {
+    CHECK_ARROW_ERROR(ArrowBuilderType<T>(ConvertToArrowType<T>::TypeValue(),
+                                          arrow::default_memory_pool())
+                          .Finish(&array));
+  } else {
+    RETURN_ON_ARROW_ERROR_AND_ASSIGN(
+        array, arrow_shim::Concatenate(std::move(this->arrays_), &pool));
+  }
   std::shared_ptr<ArrayType> array_ =
       std::dynamic_pointer_cast<ArrayType>(array);
 
   this->set_length_(array_->length());
+  this->set_data_type_(type_name_from_arrow_type(array_->type()));
   this->set_null_count_(array_->null_count());
   this->set_offset_(array_->offset());
   TAKE_BUFFER_OR_NULL_AND_APPLY(this, client, set_buffer_, pool,
@@ -377,6 +450,11 @@ template class NumericArrayBuilder<uint32_t>;
 template class NumericArrayBuilder<uint64_t>;
 template class NumericArrayBuilder<float>;
 template class NumericArrayBuilder<double>;
+template class NumericArrayBuilder<arrow::Date32Type>;
+template class NumericArrayBuilder<arrow::Date64Type>;
+template class NumericArrayBuilder<arrow::Time32Type>;
+template class NumericArrayBuilder<arrow::Time64Type>;
+template class NumericArrayBuilder<arrow::TimestampType>;
 
 template <typename T>
 FixedNumericArrayBuilder<T>::FixedNumericArrayBuilder(Client& client,
@@ -384,7 +462,7 @@ FixedNumericArrayBuilder<T>::FixedNumericArrayBuilder(Client& client,
     : NumericArrayBaseBuilder<T>(client), client_(client), size_(size) {
   if (size_ > 0) {
     VINEYARD_CHECK_OK(client.CreateBlob(size_ * sizeof(T), writer_));
-    data_ = reinterpret_cast<T*>(writer_->data());
+    data_ = reinterpret_cast<ArrowValueType<T>*>(writer_->data());
   }
 }
 
@@ -408,7 +486,7 @@ Status FixedNumericArrayBuilder<T>::Make(
   out->size_ = size;
   if (out->size_ > 0) {
     RETURN_ON_ERROR(client.CreateBlob(out->size_ * sizeof(T), out->writer_));
-    out->data_ = reinterpret_cast<T*>(out->writer_->data());
+    out->data_ = reinterpret_cast<ArrowValueType<T>*>(out->writer_->data());
   }
   return Status::OK();
 }
@@ -426,7 +504,7 @@ Status FixedNumericArrayBuilder<T>::Make(
           "cannot make builder of size > 0 with a null buffer");
     }
     out->writer_ = std::move(writer);
-    out->data_ = reinterpret_cast<T*>(out->writer_->data());
+    out->data_ = reinterpret_cast<ArrowValueType<T>*>(out->writer_->data());
   }
   return Status::OK();
 }
@@ -462,7 +540,8 @@ size_t FixedNumericArrayBuilder<T>::size() const {
 }
 
 template <typename T>
-T* FixedNumericArrayBuilder<T>::MutablePointer(int64_t i) const {
+ArrowValueType<T>* FixedNumericArrayBuilder<T>::MutablePointer(
+    int64_t i) const {
   if (data_) {
     return data_ + i;
   }
@@ -470,7 +549,7 @@ T* FixedNumericArrayBuilder<T>::MutablePointer(int64_t i) const {
 }
 
 template <typename T>
-T* FixedNumericArrayBuilder<T>::data() const {
+ArrowValueType<T>* FixedNumericArrayBuilder<T>::data() const {
   return data_;
 }
 
@@ -498,6 +577,11 @@ template class FixedNumericArrayBuilder<uint32_t>;
 template class FixedNumericArrayBuilder<uint64_t>;
 template class FixedNumericArrayBuilder<float>;
 template class FixedNumericArrayBuilder<double>;
+template class FixedNumericArrayBuilder<arrow::Date32Type>;
+template class FixedNumericArrayBuilder<arrow::Date64Type>;
+template class FixedNumericArrayBuilder<arrow::Time32Type>;
+template class FixedNumericArrayBuilder<arrow::Time64Type>;
+template class FixedNumericArrayBuilder<arrow::TimestampType>;
 
 void BooleanArray::PostConstruct(const ObjectMeta& meta) {
   this->array_ = std::make_shared<ArrayType>(

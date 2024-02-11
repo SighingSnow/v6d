@@ -22,6 +22,7 @@ limitations under the License.
 #include "client/ds/object_meta.h"
 #include "client/ds/remote_blob.h"
 #include "client/rpc_client.h"
+#include "common/memory/memcpy.h"
 #include "common/util/json.h"
 #include "common/util/status.h"
 #include "common/util/uuid.h"
@@ -212,6 +213,19 @@ void bind_core(py::module& mod) {
           "key"_a, py::arg("default") = py::none(), doc::ObjectMeta_get)
       .def(
           "get_member",
+          [](ObjectMeta* self, std::string const& key) -> py::object {
+            auto const& tree = self->MetaData();
+            auto iter = tree.find(key);
+            if (iter == tree.end()) {
+              return py::none();
+            }
+            VINEYARD_ASSERT(iter->is_object() && !iter->empty(),
+                            "The value is not a member, but a meta");
+            return py::cast(self->GetMember(key));
+          },
+          doc::ObjectMeta_get_member)
+      .def(
+          "member" /* alias for get_member() */,
           [](ObjectMeta* self, std::string const& key) -> py::object {
             auto const& tree = self->MetaData();
             auto iter = tree.find(key);
@@ -444,9 +458,10 @@ void bind_core(py::module& mod) {
       // NB: don't expose the "Build" method to python.
       .def(
           "seal",
-          [](ObjectBuilder* self, Client* client) {
+          [](ObjectBuilder* self, py::object client) {
             std::shared_ptr<Object> object;
-            throw_on_error(self->Seal(*client, object));
+            Client* ipc_client = py::cast<Client*>(client.attr("ipc_client"));
+            throw_on_error(self->Seal(*ipc_client, object));
             return object;
           },
           "client"_a)
@@ -481,18 +496,6 @@ void bind_blobs(py::module& mod) {
           "address",
           [](Blob* self) { return reinterpret_cast<uintptr_t>(self->data()); },
           doc::Blob_address)
-      .def_property_readonly(
-          "buffer",
-          [](Blob& blob) -> py::object {
-            auto buffer = blob.Buffer();
-            if (buffer == nullptr) {
-              return py::none();
-            } else {
-              return py::memoryview::from_memory(
-                  const_cast<uint8_t*>(buffer->data()), buffer->size(), true);
-            }
-          },
-          doc::Blob_buffer)
       .def_buffer([](Blob& blob) -> py::buffer_info {
         return py::buffer_info(const_cast<char*>(blob.data()), sizeof(int8_t),
                                py::format_descriptor<int8_t>::format(), 1,
@@ -550,54 +553,61 @@ void bind_blobs(py::module& mod) {
       .def(
           "copy",
           [](BlobWriter* self, size_t const offset, uintptr_t ptr,
-             size_t const size) {
-            std::memcpy(self->data() + offset, reinterpret_cast<void*>(ptr),
-                        size);
+             size_t const size,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
+            if (size == 0) {
+              return;
+            }
+            memory::concurrent_memcpy(self->data() + offset,
+                                      reinterpret_cast<void*>(ptr), size,
+                                      concurrency);
           },
-          "offset"_a, "address"_a, "size"_a, doc::BlobBuilder_copy)
+          "offset"_a, "address"_a, "size"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::BlobBuilder_copy)
       .def(
           "copy",
-          [](BlobWriter* self, size_t offset, py::buffer const& buffer) {
-            throw_on_error(copy_memoryview(buffer.ptr(), self->data(),
-                                           self->size(), offset));
+          [](BlobWriter* self, size_t offset, py::buffer const& buffer,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
+            if (self->size() == 0) {
+              return;
+            }
+            throw_on_error(copy_memoryview(self->data(), self->size(),
+                                           buffer.ptr(), offset, concurrency));
           },
-          "offset"_a, "buffer"_a)
+          "offset"_a, "buffer"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::BlobBuilder_copy)
       .def(
           "copy",
-          [](BlobWriter* self, size_t offset, py::bytes const& bs) {
+          [](BlobWriter* self, size_t offset, py::bytes const& bs,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
             char* buffer = nullptr;
-            ssize_t length = 0;
-            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &length)) {
+            ssize_t size = 0;
+            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &size)) {
               py::pybind11_fail("Unable to extract bytes contents!");
             }
-            if (offset + length > self->size()) {
+            if (size == 0) {
+              return;
+            }
+            if (offset + size > self->size()) {
               throw_on_error(Status::AssertionFailed(
                   "Expect a source buffer with size at most '" +
                   std::to_string(self->size() - offset) +
-                  "', but the buffer size is '" + std::to_string(length) +
-                  "'"));
+                  "', but the buffer size is '" + std::to_string(size) + "'"));
             }
-            std::memcpy(self->data() + offset, buffer, length);
+            memory::concurrent_memcpy(self->data() + offset, buffer, size,
+                                      concurrency);
           },
-          "offset"_a, "bytes"_a)
+          "offset"_a, "bytes"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::BlobBuilder_copy)
       .def_property_readonly(
           "address",
           [](BlobWriter* self) {
             return reinterpret_cast<uintptr_t>(self->data());
           },
           doc::BlobBuilder_address)
-      .def_property_readonly(
-          "buffer",
-          [](BlobWriter& blob) -> py::object {
-            auto buffer = blob.Buffer();
-            if (buffer == nullptr) {
-              return py::none();
-            } else {
-              return py::memoryview::from_memory(buffer->mutable_data(),
-                                                 buffer->size(), false);
-            }
-          },
-          doc::BlobBuilder_buffer)
       .def_buffer([](BlobWriter& blob) -> py::buffer_info {
         return py::buffer_info(blob.data(), sizeof(int8_t),
                                py::format_descriptor<int8_t>::format(), 1,
@@ -605,7 +615,7 @@ void bind_blobs(py::module& mod) {
       });
 
   // RemoteBlob
-  py::class_<RemoteBlob, std::shared_ptr<RemoteBlob>>(
+  py::class_<RemoteBlob, std::shared_ptr<RemoteBlob>, Object>(
       mod, "RemoteBlob", py::buffer_protocol(), doc::RemoteBlob)
       .def_property_readonly(
           "id", [](RemoteBlob* self) -> ObjectIDWrapper { return self->id(); },
@@ -641,18 +651,6 @@ void bind_blobs(py::module& mod) {
             return reinterpret_cast<uintptr_t>(self->data());
           },
           doc::RemoteBlob_address)
-      .def_property_readonly(
-          "buffer",
-          [](RemoteBlob& blob) -> py::object {
-            auto buffer = blob.Buffer();
-            if (buffer == nullptr) {
-              return py::none();
-            } else {
-              return py::memoryview::from_memory(
-                  const_cast<uint8_t*>(buffer->data()), buffer->size(), true);
-            }
-          },
-          doc::RemoteBlob_buffer)
       .def_buffer([](RemoteBlob& blob) -> py::buffer_info {
         return py::buffer_info(const_cast<char*>(blob.data()), sizeof(int8_t),
                                py::format_descriptor<int8_t>::format(), 1,
@@ -693,12 +691,12 @@ void bind_blobs(py::module& mod) {
           "wrap",
           [](py::bytes const& bs) -> std::shared_ptr<RemoteBlobWriter> {
             char* buffer = nullptr;
-            ssize_t length = 0;
-            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &length)) {
+            ssize_t size = 0;
+            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &size)) {
               py::pybind11_fail("Unable to extract bytes contents!");
             }
             return RemoteBlobWriter::Wrap(
-                reinterpret_cast<const uint8_t*>(buffer), length);
+                reinterpret_cast<const uint8_t*>(buffer), size);
           },
           "data"_a)
       .def_property_readonly("size", &RemoteBlobWriter::size,
@@ -733,54 +731,61 @@ void bind_blobs(py::module& mod) {
       .def(
           "copy",
           [](RemoteBlobWriter* self, size_t const offset, uintptr_t ptr,
-             size_t const size) {
-            std::memcpy(self->data() + offset, reinterpret_cast<void*>(ptr),
-                        size);
+             size_t const size,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
+            if (size == 0) {
+              return;
+            }
+            memory::concurrent_memcpy(self->data() + offset,
+                                      reinterpret_cast<void*>(ptr), size,
+                                      concurrency);
           },
-          "offset"_a, "address"_a, "size"_a, doc::RemoteBlobBuilder_copy)
+          "offset"_a, "address"_a, "size"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::RemoteBlobBuilder_copy)
       .def(
           "copy",
-          [](RemoteBlobWriter* self, size_t offset, py::buffer const& buffer) {
-            throw_on_error(copy_memoryview(buffer.ptr(), self->data(),
-                                           self->size(), offset));
+          [](RemoteBlobWriter* self, size_t offset, py::buffer const& buffer,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
+            if (self->size() == 0) {
+              return;
+            }
+            throw_on_error(copy_memoryview(self->data(), self->size(),
+                                           buffer.ptr(), offset, concurrency));
           },
-          "offset"_a, "buffer"_a)
+          "offset"_a, "buffer"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::RemoteBlobBuilder_copy)
       .def(
           "copy",
-          [](RemoteBlobWriter* self, size_t offset, py::bytes const& bs) {
+          [](RemoteBlobWriter* self, size_t offset, py::bytes const& bs,
+             size_t const concurrency = memory::default_memcpy_concurrency) {
             char* buffer = nullptr;
-            ssize_t length = 0;
-            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &length)) {
+            ssize_t size = 0;
+            if (PYBIND11_BYTES_AS_STRING_AND_SIZE(bs.ptr(), &buffer, &size)) {
               py::pybind11_fail("Unable to extract bytes contents!");
             }
-            if (offset + length > self->size()) {
+            if (size == 0) {
+              return;
+            }
+            if (offset + size > self->size()) {
               throw_on_error(Status::AssertionFailed(
                   "Expect a source buffer with size at most '" +
                   std::to_string(self->size() - offset) +
-                  "', but the buffer size is '" + std::to_string(length) +
-                  "'"));
+                  "', but the buffer size is '" + std::to_string(size) + "'"));
             }
-            std::memcpy(self->data() + offset, buffer, length);
+            throw_on_error(copy_memoryview(self->data(), self->size(), buffer,
+                                           size, offset, concurrency));
           },
-          "offset"_a, "bytes"_a)
+          "offset"_a, "bytes"_a,
+          py::arg("concurrency") = memory::default_memcpy_concurrency,
+          doc::RemoteBlobBuilder_copy)
       .def_property_readonly(
           "address",
           [](RemoteBlobWriter* self) {
             return reinterpret_cast<uintptr_t>(self->data());
           },
           doc::RemoteBlobBuilder_address)
-      .def_property_readonly(
-          "buffer",
-          [](RemoteBlobWriter& blob) -> py::object {
-            auto buffer = blob.Buffer();
-            if (buffer == nullptr) {
-              return py::none();
-            } else {
-              return py::memoryview::from_memory(buffer->mutable_data(),
-                                                 buffer->size(), false);
-            }
-          },
-          doc::RemoteBlobBuilder_buffer)
       .def_buffer([](RemoteBlobWriter& blob) -> py::buffer_info {
         return py::buffer_info(blob.data(), sizeof(int8_t),
                                py::format_descriptor<int8_t>::format(), 1,

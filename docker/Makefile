@@ -1,4 +1,5 @@
 REGISTRY 					:= ghcr.io/v6d-io/v6d
+RELEASE_REGISTRY			:= docker.io/vineyardcloudnative
 
 # can be: x86_64, aarch64
 PLATFORM					:= x86_64
@@ -35,6 +36,10 @@ DEV_TAG						:= latest_$(PLATFORM)
 PYTHON_DEV_REGISTRY			:= $(REGISTRY)
 PYTHON_DEV_IMAGE			:= vineyard-python-dev
 PYTHON_DEV_TAG				:= latest_$(PLATFORM)
+
+VINEYARD_FLUID_FUSE_REGISTRY	:= $(RELEASE_REGISTRY)
+VINEYARD_FLUID_FUSE_IMAGE		:= vineyard-fluid-fuse
+VINEYARD_FLUID_FUSE_TAG		:= latest
 
 BUILD_PROGRESS  			?= auto
 
@@ -115,3 +120,10 @@ build-python-dev:
 		-f ./Dockerfile.vineyard-python-dev \
 		-t $(PYTHON_DEV_REGISTRY)/$(PYTHON_DEV_IMAGE):$(PYTHON_DEV_TAG)
 .PHONY: build-python-dev
+
+
+# build vineyard-fluid-fuse image
+vineyard-fluid-fuse:
+	docker build ./vineyard-fluid-fuse \
+		-t $(VINEYARD_FLUID_FUSE_REGISTRY)/$(VINEYARD_FLUID_FUSE_IMAGE):$(VINEYARD_FLUID_FUSE_TAG)
+.PHONY: vineyard-fluid-fuse

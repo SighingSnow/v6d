@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#include <sys/stat.h>
 #include <memory>
 #include <sstream>
 
@@ -226,12 +227,31 @@ void bind_client(py::module& mod) {
           "metadata"_a, doc::ClientBase_create_metadata)
       .def(
           "create_metadata",
+          [](ClientBase* self,
+             std::vector<ObjectMeta>& metadatas) -> std::vector<ObjectMeta>& {
+            std::vector<ObjectID> object_ids;
+            throw_on_error(self->CreateMetaData(metadatas, object_ids));
+            return metadatas;
+          },
+          "metadata"_a, doc::ClientBase_create_metadata)
+      .def(
+          "create_metadata",
           [](ClientBase* self, ObjectMeta& metadata,
              InstanceID const& instance_id) -> ObjectMeta& {
             ObjectID object_id;
             throw_on_error(
                 self->CreateMetaData(metadata, instance_id, object_id));
             return metadata;
+          },
+          "metadata"_a, "instance_id"_a)
+      .def(
+          "create_metadata",
+          [](ClientBase* self, std::vector<ObjectMeta>& metadatas,
+             InstanceID const& instance_id) -> std::vector<ObjectMeta>& {
+            std::vector<ObjectID> object_ids;
+            throw_on_error(
+                self->CreateMetaData(metadatas, instance_id, object_ids));
+            return metadatas;
           },
           "metadata"_a, "instance_id"_a)
       .def(
@@ -487,6 +507,14 @@ void bind_client(py::module& mod) {
           "clear", [](ClientBase* self) { throw_on_error(self->Clear()); },
           doc::ClientBase_clear)
       .def(
+          "memory_trim",
+          [](ClientBase* self) -> bool {
+            bool trimmed = false;
+            throw_on_error(self->MemoryTrim(trimmed));
+            return trimmed;
+          },
+          doc::ClientBase_memory_trim)
+      .def(
           "label",
           [](ClientBase* self, ObjectID id, std::string const& key,
              std::string const& value) -> void {
@@ -561,14 +589,20 @@ void bind_client(py::module& mod) {
              throw_on_error(self->Debug(detail::to_json(debug), result));
              return detail::from_json(result);
            })
+      .def_property("compression", &ClientBase::compression_enabled,
+                    &ClientBase::set_compression_enabled)
       .def_property_readonly("ipc_socket", &ClientBase::IPCSocket,
                              doc::ClientBase_ipc_socket)
       .def_property_readonly("rpc_endpoint", &ClientBase::RPCEndpoint,
                              doc::ClientBase_rpc_endpoint)
       .def_property_readonly("version", &ClientBase::Version,
-                             doc::ClientBase_version);
+                             doc::ClientBase_version)
+      .def_property_readonly("is_ipc", &ClientBase::IsIPC,
+                             doc::ClientBase_is_ipc)
+      .def_property_readonly("is_rpc", &ClientBase::IsRPC,
+                             doc::ClientBase_is_rpc);
 
-  // Client
+  // IPCClient
   py::class_<Client, std::shared_ptr<Client>, ClientBase>(mod, "IPCClient",
                                                           doc::IPCClient)
       .def(
@@ -577,6 +611,18 @@ void bind_client(py::module& mod) {
             std::unique_ptr<BlobWriter> blob;
             throw_on_error(self->CreateBlob(size, blob));
             return std::shared_ptr<BlobWriter>(blob.release());
+          },
+          py::return_value_policy::move, "size"_a, doc::IPCClient_create_blob)
+      .def(
+          "create_blob",
+          [](Client* self, std::vector<size_t> const& sizes) {
+            std::vector<std::unique_ptr<BlobWriter>> blobs;
+            throw_on_error(self->CreateBlobs(sizes, blobs));
+            std::vector<std::shared_ptr<BlobWriter>> lived_blobs;
+            for (auto& blob : blobs) {
+              lived_blobs.emplace_back(blob.release());
+            }
+            return lived_blobs;
           },
           py::return_value_policy::move, "size"_a, doc::IPCClient_create_blob)
       .def(
@@ -632,20 +678,13 @@ void bind_client(py::module& mod) {
       .def(
           "get_meta",
           [](Client* self, ObjectIDWrapper const& object_id,
-             bool const sync_remote, bool const fetch) -> ObjectMeta {
+             bool const sync_remote) -> ObjectMeta {
             ObjectMeta meta;
-            // FIXME: do we really not need to sync from etcd? We assume the
-            // object is a local object
-            if (fetch) {
-              throw_on_error(
-                  self->FetchAndGetMetaData(object_id, meta, sync_remote));
-            } else {
-              throw_on_error(self->GetMetaData(object_id, meta, sync_remote));
-            }
+            throw_on_error(self->GetMetaData(object_id, meta, sync_remote));
             return meta;
           },
           "object_id"_a, py::arg("sync_remote") = false,
-          py::arg("fetch") = false, doc::IPCClient_get_meta)
+          doc::IPCClient_get_meta)
       .def(
           "get_metas",
           [](Client* self, std::vector<ObjectIDWrapper> const& object_ids,
@@ -775,11 +814,22 @@ void bind_client(py::module& mod) {
           "create_remote_blob",
           [](RPCClient* self,
              const std::shared_ptr<RemoteBlobWriter>& remote_blob_builder)
-              -> ObjectIDWrapper {
-            ObjectID blob_id = InvalidObjectID();
+              -> ObjectMeta {
+            ObjectMeta blob_meta;
             throw_on_error(
-                self->CreateRemoteBlob(remote_blob_builder, blob_id));
-            return blob_id;
+                self->CreateRemoteBlob(remote_blob_builder, blob_meta));
+            return blob_meta;
+          },
+          "remote_blob_builder"_a, doc::RPCClient_create_remote_blob)
+      .def(
+          "create_remote_blob",
+          [](RPCClient* self,
+             const std::vector<std::shared_ptr<RemoteBlobWriter>>&
+                 remote_blob_builders) -> std::vector<ObjectMeta> {
+            std::vector<ObjectMeta> blob_metas;
+            throw_on_error(
+                self->CreateRemoteBlobs(remote_blob_builders, blob_metas));
+            return blob_metas;
           },
           "remote_blob_builder"_a, doc::RPCClient_create_remote_blob)
       .def(
@@ -874,6 +924,12 @@ void bind_client(py::module& mod) {
              throw_on_error(self->Fork(*rpc_client));
              return rpc_client;
            })
+      .def(
+          "is_fetchable",
+          [](RPCClient* self, ObjectMeta& metadata) -> bool {
+            return self->IsFetchable(metadata);
+          },
+          doc::RPCClient_is_fetchable)
       .def_property_readonly("remote_instance_id",
                              &RPCClient::remote_instance_id,
                              doc::RPCClient_remote_instance_id)
@@ -884,33 +940,14 @@ void bind_client(py::module& mod) {
 
   mod.def(
          "_connect",
-         [](std::nullptr_t, const std::string& username,
+         [](std::string const& socket, const SessionID session_id,
+            const std::string& username,
             const std::string& password) -> py::object {
-           if (!read_env("VINEYARD_IPC_SOCKET").empty()) {
-             return py::cast(ClientManager<Client>::GetManager()->Connect(
-                 username, password));
-           }
-           if (!read_env("VINEYARD_RPC_ENDPOINT").empty()) {
-             return py::cast(ClientManager<RPCClient>::GetManager()->Connect(
-                 username, password));
-           }
-           throw_on_error(Status::ConnectionFailed(
-               "Failed to resolve IPC socket or RPC endpoint of vineyard "
-               "server from environment variables VINEYARD_IPC_SOCKET or "
-               "VINEYARD_RPC_ENDPOINT."));
-           return py::none();
+           return py::cast(ClientManager<Client>::GetManager()->Connect(
+               socket, session_id, username, password));
          },
-         py::arg("target") = py::none(), py::kw_only(),
-         py::arg("username") = "", py::arg("password") = "", doc::connect)
-      .def(
-          "_connect",
-          [](std::string const& socket, const std::string& username,
-             const std::string& password) -> py::object {
-            return py::cast(ClientManager<Client>::GetManager()->Connect(
-                socket, username, password));
-          },
-          "socket"_a, py::kw_only(), py::arg("username") = "",
-          py::arg("password") = "")
+         "socket"_a, py::kw_only(), py::arg("session") = RootSessionID(),
+         py::arg("username") = "", py::arg("password") = "")
       .def(
           "_connect",
           [](std::string const& host, const uint32_t port,
@@ -920,8 +957,9 @@ void bind_client(py::module& mod) {
             return py::cast(ClientManager<RPCClient>::GetManager()->Connect(
                 rpc_endpoint, session_id, username, password));
           },
-          "host"_a, "port"_a, py::arg("session") = RootSessionID(),
-          py::kw_only(), py::arg("username") = "", py::arg("password") = "")
+          "host"_a, "port"_a, py::kw_only(),
+          py::arg("session") = RootSessionID(), py::arg("username") = "",
+          py::arg("password") = "")
       .def(
           "_connect",
           [](std::string const& host, std::string const& port,
@@ -931,8 +969,9 @@ void bind_client(py::module& mod) {
             return ClientManager<RPCClient>::GetManager()->Connect(
                 rpc_endpoint, session_id, username, password);
           },
-          "host"_a, "port"_a, py::arg("session") = RootSessionID(),
-          py::kw_only(), py::arg("username") = "", py::arg("password") = "")
+          "host"_a, "port"_a, py::kw_only(),
+          py::arg("session") = RootSessionID(), py::arg("username") = "",
+          py::arg("password") = "")
       .def(
           "_connect",
           [](std::pair<std::string, uint32_t> const& endpoint,
@@ -943,7 +982,7 @@ void bind_client(py::module& mod) {
             return ClientManager<RPCClient>::GetManager()->Connect(
                 rpc_endpoint, session_id, username, password);
           },
-          "endpoint"_a, py::arg("session") = RootSessionID(), py::kw_only(),
+          "endpoint"_a, py::kw_only(), py::arg("session") = RootSessionID(),
           py::arg("username") = "", py::arg("password") = "")
       .def(
           "_connect",
@@ -954,7 +993,7 @@ void bind_client(py::module& mod) {
             return ClientManager<RPCClient>::GetManager()->Connect(
                 rpc_endpoint, session_id, username, password);
           },
-          "endpoint"_a, py::arg("session") = RootSessionID(), py::kw_only(),
+          "endpoint"_a, py::kw_only(), py::arg("session") = RootSessionID(),
           py::arg("username") = "", py::arg("password") = "");
 }  // NOLINT(readability/fn_size)
 

@@ -49,6 +49,8 @@ const std::string command_t::EXIT_REPLY = "exit_reply";
 // Blobs APIs
 const std::string command_t::CREATE_BUFFER_REQUEST = "create_buffer_request";
 const std::string command_t::CREATE_BUFFER_REPLY = "create_buffer_reply";
+const std::string command_t::CREATE_BUFFERS_REQUEST = "create_buffers_request";
+const std::string command_t::CREATE_BUFFERS_REPLY = "create_buffers_reply";
 const std::string command_t::CREATE_DISK_BUFFER_REQUEST =
     "create_disk_buffer_request";
 const std::string command_t::CREATE_DISK_BUFFER_REPLY =
@@ -74,6 +76,8 @@ const std::string command_t::REQUEST_FD_REPLY = "request_fd_reply";
 
 const std::string command_t::CREATE_REMOTE_BUFFER_REQUEST =
     "create_remote_buffer_request";
+const std::string command_t::CREATE_REMOTE_BUFFERS_REQUEST =
+    "create_remote_buffers_request";
 const std::string command_t::GET_REMOTE_BUFFERS_REQUEST =
     "get_remote_buffers_request";
 
@@ -107,6 +111,8 @@ const std::string command_t::PLASMA_DEL_DATA_REPLY = "plasma_delete_data_reply";
 // Metadata APIs
 const std::string command_t::CREATE_DATA_REQUEST = "create_data_request";
 const std::string command_t::CREATE_DATA_REPLY = "create_data_reply";
+const std::string command_t::CREATE_DATAS_REQUEST = "create_datas_request";
+const std::string command_t::CREATE_DATAS_REPLY = "create_datas_reply";
 const std::string command_t::GET_DATA_REQUEST = "get_data_request";
 const std::string command_t::GET_DATA_REPLY = "get_data_reply";
 const std::string command_t::LIST_DATA_REQUEST = "list_data_request";
@@ -123,6 +129,8 @@ const std::string command_t::LABEL_REQUEST = "label_request";
 const std::string command_t::LABEL_REPLY = "label_reply";
 const std::string command_t::CLEAR_REQUEST = "clear_request";
 const std::string command_t::CLEAR_REPLY = "clear_reply";
+const std::string command_t::MEMORY_TRIM_REQUEST = "memory_trim_request";
+const std::string command_t::MEMORY_TRIM_REPLY = "memory_trim_reply";
 
 // Stream APIs
 const std::string command_t::CREATE_STREAM_REQUEST = "create_stream_request";
@@ -335,6 +343,58 @@ Status ReadCreateBufferReply(const json& root, ObjectID& id, Payload& object,
   id = root["id"].get<ObjectID>();
   object.FromJSON(tree);
   fd_sent = root.value("fd", -1);
+  return Status::OK();
+}
+
+void WriteCreateBuffersRequest(const std::vector<size_t>& sizes,
+                               std::string& msg) {
+  json root;
+  root["type"] = command_t::CREATE_BUFFERS_REQUEST;
+  root["num"] = sizes.size();
+  root["sizes"] = sizes;
+
+  encode_msg(root, msg);
+}
+
+Status ReadCreateBuffersRequest(const json& root, std::vector<size_t>& sizes) {
+  CHECK_IPC_ERROR(root, command_t::CREATE_BUFFERS_REQUEST);
+  sizes = root["sizes"].get<std::vector<size_t>>();
+  return Status::OK();
+}
+
+void WriteCreateBuffersReply(
+    const std::vector<ObjectID>& ids,
+    const std::vector<std::shared_ptr<Payload>>& objects,
+    const std::vector<int>& fds_to_send, std::string& msg) {
+  json root;
+  root["type"] = command_t::CREATE_BUFFERS_REPLY;
+  root["num"] = ids.size();
+  root["ids"] = ids;
+  root["fds"] = fds_to_send;
+  json payloads = json::array();
+  for (size_t i = 0; i < objects.size(); ++i) {
+    json tree;
+    objects[i]->ToJSON(tree);
+    root[std::to_string(i)] = tree;
+    payloads.push_back(tree);
+  }
+  root["payloads"] = payloads;
+
+  encode_msg(root, msg);
+}
+
+Status ReadCreateBuffersReply(const json& root, std::vector<ObjectID>& ids,
+                              std::vector<Payload>& objects,
+                              std::vector<int>& fds_sent) {
+  CHECK_IPC_ERROR(root, command_t::CREATE_BUFFERS_REPLY);
+  ids = root["ids"].get<std::vector<ObjectID>>();
+  fds_sent = root["fds"].get<std::vector<int>>();
+  for (size_t i = 0; i < root["num"]; ++i) {
+    json tree = root[std::to_string(i)];
+    Payload object;
+    object.FromJSON(tree);
+    objects.emplace_back(object);
+  }
   return Status::OK();
 }
 
@@ -668,6 +728,26 @@ Status ReadCreateRemoteBufferRequest(const json& root, size_t& size,
                                      bool& compress) {
   CHECK_IPC_ERROR(root, command_t::CREATE_REMOTE_BUFFER_REQUEST);
   size = root["size"].get<size_t>();
+  compress = root.value("compress", false);
+  return Status::OK();
+}
+
+void WriteCreateRemoteBuffersRequest(const std::vector<size_t>& size,
+                                     const bool compress, std::string& msg) {
+  json root;
+  root["type"] = command_t::CREATE_REMOTE_BUFFERS_REQUEST;
+  root["num"] = size.size();
+  root["sizes"] = size;
+  root["compress"] = compress;
+
+  encode_msg(root, msg);
+}
+
+Status ReadCreateRemoteBuffersRequest(const json& root,
+                                      std::vector<size_t>& size,
+                                      bool& compress) {
+  CHECK_IPC_ERROR(root, command_t::CREATE_REMOTE_BUFFERS_REQUEST);
+  size = root["sizes"].get<std::vector<size_t>>();
   compress = root.value("compress", false);
   return Status::OK();
 }
@@ -1011,6 +1091,46 @@ Status ReadCreateDataReply(const json& root, ObjectID& id, Signature& signature,
   return Status::OK();
 }
 
+void WriteCreateDatasRequest(const std::vector<json>& contents,
+                             std::string& msg) {
+  json root;
+  root["type"] = command_t::CREATE_DATAS_REQUEST;
+  root["num"] = contents.size();
+  root["contents"] = contents;
+
+  encode_msg(root, msg);
+}
+
+Status ReadCreateDatasRequest(const json& root, std::vector<json>& contents) {
+  CHECK_IPC_ERROR(root, command_t::CREATE_DATAS_REQUEST);
+  contents = root["contents"].get<std::vector<json>>();
+  return Status::OK();
+}
+
+void WriteCreateDatasReply(const std::vector<ObjectID>& ids,
+                           const std::vector<Signature>& signatures,
+                           const std::vector<InstanceID>& instance_ids,
+                           std::string& msg) {
+  json root;
+  root["type"] = command_t::CREATE_DATAS_REPLY;
+  root["num"] = ids.size();
+  root["ids"] = ids;
+  root["signatures"] = signatures;
+  root["instance_ids"] = instance_ids;
+
+  encode_msg(root, msg);
+}
+
+Status ReadCreateDatasReply(const json& root, std::vector<ObjectID>& ids,
+                            std::vector<Signature>& signatures,
+                            std::vector<InstanceID>& instance_ids) {
+  CHECK_IPC_ERROR(root, command_t::CREATE_DATAS_REPLY);
+  ids = root["ids"].get<std::vector<ObjectID>>();
+  signatures = root["signatures"].get<std::vector<Signature>>();
+  instance_ids = root["instance_ids"].get<std::vector<InstanceID>>();
+  return Status::OK();
+}
+
 void WriteGetDataRequest(const ObjectID id, const bool sync_remote,
                          const bool wait, std::string& msg) {
   json root;
@@ -1301,6 +1421,33 @@ Status ReadClearReply(const json& root) {
   CHECK_IPC_ERROR(root, command_t::CLEAR_REPLY);
   return Status::OK();
 }
+
+void WriteMemoryTrimRequest(std::string& msg) {
+  json root;
+  root["type"] = command_t::MEMORY_TRIM_REQUEST;
+
+  encode_msg(root, msg);
+}
+
+Status ReadMemoryTrimRequest(const json& root) {
+  CHECK_IPC_ERROR(root, command_t::MEMORY_TRIM_REQUEST);
+  return Status::OK();
+}
+
+void WriteMemoryTrimReply(const bool trimmed, std::string& msg) {
+  json root;
+  root["type"] = command_t::MEMORY_TRIM_REPLY;
+  root["trimmed"] = trimmed;
+
+  encode_msg(root, msg);
+}
+
+Status ReadMemoryTrimReply(const json& root, bool& trimmed) {
+  CHECK_IPC_ERROR(root, command_t::MEMORY_TRIM_REPLY);
+  trimmed = root.value("trimmed", false);
+  return Status::OK();
+}
+
 void WriteCreateStreamRequest(const ObjectID& object_id, std::string& msg) {
   json root;
   root["type"] = command_t::CREATE_STREAM_REQUEST;

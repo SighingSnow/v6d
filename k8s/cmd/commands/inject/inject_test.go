@@ -101,7 +101,7 @@ metadata:
   ownerReferences: []
 spec:
   ports:
-  - name: vineyard-sidecar-etcd-for-vineyard-port
+  - name: etcd-for-vineyard-port
     port: 2379
     protocol: TCP
     targetPort: 2379
@@ -228,7 +228,7 @@ spec:
         - /bin/bash
         - -c
         - |
-          /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service.vineyard-system.svc.cluster.local:2379; sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size  --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
+          /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size  --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
         env:
         - name: VINEYARDD_UID
           value: null
@@ -246,6 +246,7 @@ spec:
         resources:
           limits: null
           requests: null
+        securityContext: {}
         volumeMounts:
         - mountPath: /var/run
           name: vineyard-socket
@@ -285,7 +286,7 @@ spec:
     - /bin/bash
     - -c
     - |
-      /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service.vineyard-system.svc.cluster.local:2379; sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size  --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
+      /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size  --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
     env:
     - name: VINEYARDD_UID
       value: null
@@ -303,6 +304,7 @@ spec:
     resources:
       limits: null
       requests: null
+    securityContext: {}
     volumeMounts:
     - mountPath: /var/run
       name: vineyard-socket

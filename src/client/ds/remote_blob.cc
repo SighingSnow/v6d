@@ -18,8 +18,10 @@ limitations under the License.
 #include <cstring>
 #include <iomanip>
 #include <memory>
+#include <string>
 #include <utility>
 
+#include "client/client_base.h"
 #include "client/ds/blob.h"
 #include "common/util/status.h"
 #include "common/util/uuid.h"
@@ -29,6 +31,45 @@ namespace vineyard {
 ObjectID RemoteBlob::id() const { return id_; }
 
 ObjectID RemoteBlob::instance_id() const { return instance_id_; }
+
+void RemoteBlob::Construct(ObjectMeta const& meta) {
+  std::string __type_name = type_name<RemoteBlob>();
+  VINEYARD_ASSERT(meta.GetTypeName() == __type_name,
+                  "Expect typename '" + __type_name + "', but got '" +
+                      meta.GetTypeName() + "'");
+  this->meta_ = meta;
+  this->id_ = meta.GetId();
+
+  if (this->buffer_ != nullptr) {
+    return;
+  }
+  if (this->id_ == EmptyBlobID() || meta.GetNBytes() == 0) {
+    this->size_ = 0;
+    return;
+  }
+
+  if (meta.GetClient()->IsRPC() &&
+      meta.GetClient()->remote_instance_id() != meta.GetInstanceId()) {
+    throw std::runtime_error(
+        "RemoteBlob::Construct(): Invalid internal state: remote blob found "
+        "but it is not located with the instance connected by rpc client");
+  }
+
+  if (meta.GetBuffer(meta.GetId(), this->buffer_).ok()) {
+    if (this->buffer_ == nullptr) {
+      throw std::runtime_error(
+          "RemoteBlob::Construct(): Invalid internal state: remote blob found "
+          "but it is nullptr: " +
+          ObjectIDToString(meta.GetId()));
+    }
+    this->size_ = this->buffer_->size();
+  } else {
+    throw std::runtime_error(
+        "RemoteBlob::Construct(): Invalid internal state: failed to construct "
+        "remote blob since payload is missing: " +
+        ObjectIDToString(meta.GetId()));
+  }
+}
 
 size_t RemoteBlob::size() const { return allocated_size(); }
 

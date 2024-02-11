@@ -206,7 +206,7 @@ def make_metadata_settings(meta, endpoint, prefix):
 def start_vineyardd(
     metadata_settings,
     allocator_settings,
-    size=3 * 1024 * 1024 * 1024,
+    size=8 * 1024 * 1024 * 1024,
     default_ipc_socket=VINEYARD_CI_IPC_SOCKET,
     idx=None,
     spill_path="",
@@ -433,6 +433,7 @@ def run_vineyard_cpp_tests(meta, allocator, endpoints, tests):
         # run_test('allocator_test')
         run_test(tests, 'arrow_data_structure_test')
         run_test(tests, 'clear_test')
+        run_test(tests, 'concurrent_memcpy_test')
         run_test(tests, 'custom_vector_test')
         run_test(tests, 'dataframe_test')
         run_test(tests, 'delete_test')
@@ -625,6 +626,7 @@ def run_python_contrib_distributed_tests(
             ['%s.%d' % (VINEYARD_CI_IPC_SOCKET, i) for i in range(instance_size)]
         )
         start_time = time.time()
+        rpc_socket_port = instances[0][1]
         subprocess.check_call(
             [
                 'pytest',
@@ -637,6 +639,7 @@ def run_python_contrib_distributed_tests(
                 'python/vineyard/contrib/%s' % contrib,
                 *test_args,
                 '--vineyard-ipc-sockets=%s' % vineyard_ipc_sockets,
+                '--vineyard-endpoint=localhost:%s' % rpc_socket_port,
             ],
             cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'),
         )

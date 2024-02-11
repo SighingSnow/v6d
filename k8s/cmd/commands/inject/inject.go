@@ -25,6 +25,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/yaml"
 
 	"github.com/v6d-io/v6d/k8s/apis/k8s/v1alpha1"
 	"github.com/v6d-io/v6d/k8s/cmd/commands/flags"
@@ -166,7 +167,7 @@ var (
 	  ownerReferences: []
 	spec:
 	  ports:
-	  - name: vineyard-sidecar-etcd-for-vineyard-port
+	  - name: etcd-for-vineyard-port
 	    port: 2379
 	    protocol: TCP
 	    targetPort: 2379
@@ -220,8 +221,7 @@ var (
 	    - /bin/bash
 	    - -c
 	    - |
-	      /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service..svc.cluster.local:2379; \
-	      sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size \
+	      /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size \
 	      --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
 	    env:
 	    - name: VINEYARDD_UID
@@ -240,6 +240,7 @@ var (
 	    resources:
 	      limits: null
 	      requests: null
+	    securityContext: {}
 	    volumeMounts:
 	    - mountPath: /var/run
 	      name: vineyard-socket
@@ -315,8 +316,7 @@ var (
 	      - /bin/bash
 	      - -c
 	      - |
-	        /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service.vineyard-job.svc.cluster.local:2379; \
-	        sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock \
+	        /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock \
 	        --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard \
 	        --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
 	      env:
@@ -486,6 +486,18 @@ func GetManifestFromTemplate(workload string) (OutputManifests, error) {
 	tmplFunc := map[string]interface{}{
 		"getEtcdConfig": func() k8s.EtcdConfig {
 			return etcdConfig
+		},
+		"toYaml": func(v interface{}) string {
+			bs, err := yaml.Marshal(v)
+			if err != nil {
+				log.Error(err, "failed to marshal object %v to yaml", v)
+				return ""
+			}
+			return string(bs)
+		},
+		"indent": func(spaces int, s string) string {
+			prefix := strings.Repeat(" ", spaces)
+			return prefix + strings.Replace(s, "\n", "\n"+prefix, -1)
 		},
 	}
 
@@ -680,6 +692,27 @@ func buildSidecar(namespace string) (*v1alpha1.Sidecar, error) {
 			Namespace: namespace,
 		},
 		Spec: *opts,
+	}
+	if flags.VineyardSecurityContext != "" {
+		securityContext, err := util.ParseSecurityContext(flags.VineyardSecurityContext)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to parse security context of vineyard sidecar container")
+		}
+		sidecar.Spec.SecurityContext = *securityContext
+	}
+	if flags.VineyardVolume != "" {
+		volumes, err := util.ParseVolume(flags.VineyardVolume)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to parse volumes of vineyard sidecar container")
+		}
+		sidecar.Spec.Volumes = *volumes
+	}
+	if flags.VineyardVolumeMount != "" {
+		volumeMounts, err := util.ParseVolumeMount(flags.VineyardVolumeMount)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to parse volume mounts of vineyard sidecar container")
+		}
+		sidecar.Spec.VolumeMounts = *volumeMounts
 	}
 	return sidecar, nil
 }

@@ -16,7 +16,9 @@ limitations under the License.
 #ifndef SRC_CLIENT_RPC_CLIENT_H_
 #define SRC_CLIENT_RPC_CLIENT_H_
 
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -287,8 +289,33 @@ class RPCClient final : public ClientBase {
     return remote_instance_id_;
   }
 
+  /**
+   * @brief Check if the client is a RPC client.
+   *
+   * @return True means the client is a RPC client.
+   */
+  bool IsRPC() const override { return true; }
+
+  /**
+   * @brief Whether the instance connected by rpc client is the same as object
+   * metadata's instance.
+   *
+   * @return True means the instance is the same as object metadata's instance.
+   */
+  bool IsFetchable(const ObjectMeta& meta);
+
+  /**
+   * @brief Create a remote blob on the vineyard server.
+   */
   Status CreateRemoteBlob(std::shared_ptr<RemoteBlobWriter> const& buffer,
-                          ObjectID& id);
+                          ObjectMeta& meta);
+
+  /**
+   * @brief Create remote blobs on the vineyard server.
+   */
+  Status CreateRemoteBlobs(
+      std::vector<std::shared_ptr<RemoteBlobWriter>> const& buffers,
+      std::vector<ObjectMeta>& metas);
 
   /**
    * @brief Get the remote blob of the connected vineyard server, using the RPC
@@ -316,6 +343,10 @@ class RPCClient final : public ClientBase {
   Status GetRemoteBlobs(std::vector<ObjectID> const& ids,
                         std::vector<std::shared_ptr<RemoteBlob>>& remote_blobs);
 
+  Status GetRemoteBlobs(
+      std::set<ObjectID> const& ids,
+      std::map<ObjectID, std::shared_ptr<RemoteBlob>>& remote_blobs);
+
   /**
    * @brief Get the remote blobs of the connected vineyard server, using the RPC
    * socket. and optionally bypass the "seal" check.
@@ -325,9 +356,12 @@ class RPCClient final : public ClientBase {
   Status GetRemoteBlobs(std::vector<ObjectID> const& ids, const bool unsafe,
                         std::vector<std::shared_ptr<RemoteBlob>>& remote_blobs);
 
+  Status GetRemoteBlobs(
+      std::set<ObjectID> const& ids, const bool unsafe,
+      std::map<ObjectID, std::shared_ptr<RemoteBlob>>& remote_blobs);
+
  private:
   InstanceID remote_instance_id_;
-  bool support_rpc_compression_ = false;
 
   friend class Client;
 };

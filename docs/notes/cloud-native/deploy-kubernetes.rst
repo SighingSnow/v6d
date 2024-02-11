@@ -5,6 +5,27 @@ Deploy on Kubernetes
 
 Vineyard is managed by the :ref:`vineyard-operator` on Kubernetes.
 
+Quick start
+-----------
+
+If you want to install vineyard cluster quickly, you can 
+use the following command.
+
+Install `vineyardctl`_ as follows.
+
+.. code:: bash
+
+    pip3 install vineyard
+
+Use the vineyardctl to install vineyard cluster.
+
+.. code:: bash
+
+    python3 -m vineyard.ctl deploy vineyard-cluster --create-namespace
+
+Also, you could follow the next guide to install vineyard cluster steps
+by steps.
+
 Install vineyard-operator
 -------------------------
 
@@ -16,8 +37,6 @@ installing directly from the source code.
     Prior to installing the vineyard operator, ensure that you have a Kubernetes cluster and kubectl
     installed. In this guide, we will use `kind`_ to create a cluster.
 
-Before proceeding with the vineyard installation, it is essential to install cert-manager, as it is required
-by the webhook components within the vineyard operator:
 
 Option #1: Install from helm chart (recommended)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -56,18 +75,7 @@ Option #2: Install form source code
 
           $ kind load docker-image vineyardcloudnative/vineyard-operator:latest
 
-3. Install the cert-manager
-
-   .. code:: bash
-
-       $ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml
-
-   .. note::
-
-       Please wait the cert-manager for a while until it is ready before installing the
-       vineyard operator.
-
-4. Next, deploy the vineyard operator:
+3. Next, deploy the vineyard operator:
 
    .. code:: bash
 
@@ -196,5 +204,6 @@ automates much of the boilerplate configuration required when deploying workflow
    ^^^^^^^^^^^^
    :code:`vineyardctl` is the command-line tool for working with the Vineyard Operator.
 
+.. _vineyardctl: https://github.com/v6d-io/v6d/blob/main/k8s/cmd/README.md
 .. _kind: https://kind.sigs.k8s.io
 .. _CRD: https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions

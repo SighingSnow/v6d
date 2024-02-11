@@ -69,7 +69,7 @@ def copy_bytestream_to_blob(client, bs: ByteStream, blob: BlobBuilder):
         serialization_options = json.loads(serialization_options)
     offset = 0
     reader = bs.open_reader(client)
-    buffer = blob.buffer
+    buffer = memoryview(blob)
     raw_buffer = io.BytesIO()
     while True:
         try:
@@ -85,7 +85,7 @@ def copy_bytestream_to_blob(client, bs: ByteStream, blob: BlobBuilder):
         len(buffer),
     )
     if len(blob_data) > 0:
-        vineyard.memory_copy(buffer, offset, blob_data)
+        vineyard.memory_copy(buffer, blob_data, offset)
         offset += len(blob_data)
     return blob.seal(client)
 

@@ -65,6 +65,7 @@ class SocketConnection : public std::enable_shared_from_this<SocketConnection> {
   bool doRegister(json const& root);
 
   bool doCreateBuffer(json const& root);
+  bool doCreateBuffers(json const& root);
   bool doCreateDiskBuffer(json const& root);
   bool doCreateGPUBuffer(json const& root);
   bool doSealBlob(json const& root);
@@ -78,6 +79,7 @@ class SocketConnection : public std::enable_shared_from_this<SocketConnection> {
    * of blob is in the request body, rather than via memory sharing.
    */
   bool doCreateRemoteBuffer(json const& root);
+  bool doCreateRemoteBuffers(json const& root);
 
   /**
    * @brief doGetRemoteBuffers differs from doGetRemoteBuffers, that the
@@ -96,6 +98,7 @@ class SocketConnection : public std::enable_shared_from_this<SocketConnection> {
   bool doPlasmaDelData(json const& root);
 
   bool doCreateData(json const& root);
+  bool doCreateDatas(json const& root);
   bool doGetData(json const& root);
   bool doListData(json const& root);
   bool doDelData(json const& root);
@@ -104,6 +107,7 @@ class SocketConnection : public std::enable_shared_from_this<SocketConnection> {
   bool doIfPersist(json const& root);
   bool doLabelObject(json const& root);
   bool doClear(json const& root);
+  bool doMemoryTrim(json const& root);
 
   bool doCreateStream(json const& root);
   bool doOpenStream(json const& root);
@@ -235,7 +239,7 @@ class SocketServer {
    * Cancel the "async_accept" action on the acceptor to stop accepting
    * further connections.
    */
-  virtual void Close() { closable_.store(true); }
+  virtual void Close();
 
   /**
    * Check if @conn_id@ exists in the connection pool.

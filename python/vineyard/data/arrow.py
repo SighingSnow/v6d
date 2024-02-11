@@ -32,15 +32,14 @@ from vineyard._C import Blob
 from vineyard._C import IPCClient
 from vineyard._C import Object
 from vineyard._C import ObjectMeta
+from vineyard._C import RemoteBlob
 from vineyard.core.builder import BuilderContext
 from vineyard.core.resolver import ResolverContext
 from vineyard.data.utils import build_buffer
 from vineyard.data.utils import normalize_dtype
 
 
-def buffer_builder(
-    client: IPCClient, buffer: Union[bytes, memoryview], builder: BuilderContext
-):
+def buffer_builder(client, buffer: Union[bytes, memoryview], builder: BuilderContext):
     if buffer is None:
         address = None
         size = 0
@@ -50,10 +49,11 @@ def buffer_builder(
     return build_buffer(client, address, size, builder)
 
 
-def as_arrow_buffer(blob: Blob):
-    buffer = blob.buffer
-    if buffer is None:
-        return None
+def as_arrow_buffer(blob: Union[Blob, RemoteBlob]):
+    if isinstance(blob, (Blob, RemoteBlob)) and not blob.is_empty:
+        buffer = memoryview(blob)
+    else:
+        buffer = memoryview(b'')
     return pa.py_buffer(buffer)
 
 

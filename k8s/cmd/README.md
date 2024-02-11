@@ -307,7 +307,6 @@ Delete the vineyard components from kubernetes
 
 * [vineyardctl](#vineyardctl)	 - vineyardctl is the command-line tool for interact with the Vineyard Operator.
 * [vineyardctl delete backup](#vineyardctl-delete-backup)	 - Delete the backup job on kubernetes
-* [vineyardctl delete cert-manager](#vineyardctl-delete-cert-manager)	 - Delete the cert-manager on kubernetes
 * [vineyardctl delete csidriver](#vineyardctl-delete-csidriver)	 - Delete the vineyard csi driver on kubernetes
 * [vineyardctl delete operation](#vineyardctl-delete-operation)	 - Delete the operation from kubernetes
 * [vineyardctl delete operator](#vineyardctl-delete-operator)	 - Delete the vineyard operator from kubernetes
@@ -324,9 +323,6 @@ Delete the vineyard components from kubernetes
 
   # delete the default vineyard operator on kubernetes
   vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config delete operator
-
-  # delete the default cert-manager on kubernetes
-  vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config delete cert-manager
 
   # delete the default vineyardd on kubernetes
   vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config delete vineyardd
@@ -366,36 +362,6 @@ vineyardctl delete backup [flags]
 ```
       --backup-name string   the name of backup job (default "vineyard-backup")
   -h, --help                 help for backup
-```
-
-## `vineyardctl delete cert-manager`
-
-Delete the cert-manager on kubernetes
-
-### Synopsis
-
-Delete the cert-manager in the cert-manager namespace. 
-The default version of cert-manager is v1.9.1.
-
-```
-vineyardctl delete cert-manager [flags]
-```
-
-**SEE ALSO**
-
-* [vineyardctl delete](#vineyardctl-delete)	 - Delete the vineyard components from kubernetes
-
-### Examples
-
-```shell
-  # delete the default version(v1.9.1) of cert-manager
-  vineyardctl --kubeconfig $HOME/.kube/config delete cert-manager
-```
-
-### Options
-
-```
-  -h, --help   help for cert-manager
 ```
 
 ## `vineyardctl delete csidriver`
@@ -596,7 +562,6 @@ Deploy the vineyard components on kubernetes
 
 * [vineyardctl](#vineyardctl)	 - vineyardctl is the command-line tool for interact with the Vineyard Operator.
 * [vineyardctl deploy backup-job](#vineyardctl-deploy-backup-job)	 - Deploy a backup job of vineyard cluster on kubernetes
-* [vineyardctl deploy cert-manager](#vineyardctl-deploy-cert-manager)	 - Deploy the cert-manager on kubernetes
 * [vineyardctl deploy csidriver](#vineyardctl-deploy-csidriver)	 - Deploy the vineyard csi driver on kubernetes
 * [vineyardctl deploy operator](#vineyardctl-deploy-operator)	 - Deploy the vineyard operator on kubernetes
 * [vineyardctl deploy recover-job](#vineyardctl-deploy-recover-job)	 - Deploy a recover job to recover a backup of current vineyard cluster on kubernetes
@@ -612,9 +577,6 @@ Deploy the vineyard components on kubernetes
 
   # deploy the vineyard operator on kubernetes
   vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config deploy operator
-
-  # deploy the cert-manager on kubernetes
-  vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config deploy cert-manager
 
   # deploy the vineyardd on kubernetes
   vineyardctl -n vineyard-system --kubeconfig $HOME/.kube/config deploy vineyardd
@@ -750,44 +712,6 @@ vineyardctl deploy backup-job [flags]
       --pvc-name string                        the name of an existing PersistentVolumeClaim
       --vineyard-deployment-name string        the name of vineyard deployment
       --vineyard-deployment-namespace string   the namespace of vineyard deployment
-```
-
-## `vineyardctl deploy cert-manager`
-
-Deploy the cert-manager on kubernetes
-
-### Synopsis
-
-Deploy the cert-manager in the cert-manager namespace. The default
-version of cert-manager is v1.9.1.
-
-```
-vineyardctl deploy cert-manager [flags]
-```
-
-**SEE ALSO**
-
-* [vineyardctl deploy](#vineyardctl-deploy)	 - Deploy the vineyard components on kubernetes
-
-### Examples
-
-```shell
-  # install the default version(v1.9.1) in the cert-manager namespace
-  # wait for the cert-manager to be ready(default option)
-  vineyardctl --kubeconfig $HOME/.kube/config deploy cert-manager
-
-  # install the default version(v1.9.1) in the cert-manager namespace
-  # not to wait for the cert-manager to be ready, but we does not recommend
-  # to do this, because there may be errors caused by the cert-manager
-  # not ready
-  vineyardctl --kubeconfig $HOME/.kube/config deploy cert-manager \
-    --wait=false
-```
-
-### Options
-
-```
-  -h, --help   help for cert-manager
 ```
 
 ## `vineyardctl deploy csidriver`
@@ -989,6 +913,7 @@ vineyardctl deploy vineyard-deployment [flags]
       --pluginImage.localAssemblyImage string         the local assembly image of vineyardd workflow (default "ghcr.io/v6d-io/v6d/local-assembly")
       --pluginImage.recoverImage string               the recover image of vineyardd (default "ghcr.io/v6d-io/v6d/recover-job")
       --replicas int                                  the number of vineyardd replicas (default 3)
+      --securityContext string                        the json string of security context of vineyardd
       --vineyardd.cpu string                          the cpu requests and limits of vineyard container
       --vineyardd.envs strings                        The environment variables of vineyardd
       --vineyardd.image string                        the image of vineyardd (default "vineyardcloudnative/vineyardd:latest")
@@ -1011,6 +936,8 @@ vineyardctl deploy vineyard-deployment [flags]
       --vineyardd.syncCRDs                            enable metrics of vineyardd (default true)
       --vineyardd.volume.mountPath string             Set the mount path for the pvc
       --vineyardd.volume.pvcname string               Set the pvc name for storing the vineyard objects persistently
+      --volume string                                 the json string of vineyardd volume
+      --volumeMount string                            the json string of vineyardd volume mount
 ```
 
 ## `vineyardctl deploy vineyardd`
@@ -1122,6 +1049,7 @@ vineyardctl deploy vineyardd [flags]
       --pluginImage.localAssemblyImage string         the local assembly image of vineyardd workflow (default "ghcr.io/v6d-io/v6d/local-assembly")
       --pluginImage.recoverImage string               the recover image of vineyardd (default "ghcr.io/v6d-io/v6d/recover-job")
       --replicas int                                  the number of vineyardd replicas (default 3)
+      --securityContext string                        the json string of security context of vineyardd
       --vineyardd.cpu string                          the cpu requests and limits of vineyard container
       --vineyardd.envs strings                        The environment variables of vineyardd
       --vineyardd.image string                        the image of vineyardd (default "vineyardcloudnative/vineyardd:latest")
@@ -1144,6 +1072,8 @@ vineyardctl deploy vineyardd [flags]
       --vineyardd.syncCRDs                            enable metrics of vineyardd (default true)
       --vineyardd.volume.mountPath string             Set the mount path for the pvc
       --vineyardd.volume.pvcname string               Set the pvc name for storing the vineyard objects persistently
+      --volume string                                 the json string of vineyardd volume
+      --volumeMount string                            the json string of vineyardd volume mount
 ```
 
 ## `vineyardctl get`
@@ -1458,7 +1388,7 @@ metadata:
   ownerReferences: []
 spec:
   ports:
-  - name: vineyard-sidecar-etcd-for-vineyard-port
+  - name: etcd-for-vineyard-port
     port: 2379
     protocol: TCP
     targetPort: 2379
@@ -1512,8 +1442,7 @@ spec:
     - /bin/bash
     - -c
     - |
-      /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service..svc.cluster.local:2379; \
-      sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size \
+      /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size \
       --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
     env:
     - name: VINEYARDD_UID
@@ -1532,6 +1461,7 @@ spec:
     resources:
       limits: null
       requests: null
+    securityContext: {}
     volumeMounts:
     - mountPath: /var/run
       name: vineyard-socket
@@ -1609,8 +1539,7 @@ template:
       - /bin/bash
       - -c
       - |
-        /usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service.vineyard-job.svc.cluster.local:2379; \
-        sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock \
+        /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock \
         --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard \
         --etcd_endpoint http://vineyard-sidecar-etcd-service:2379
       env:
@@ -1695,6 +1624,7 @@ vineyardctl inject [flags]
   -o, --output string                           The output format of the command, support yaml and json (default "yaml")
       --owner-references string                 The owner reference of all injectied resources
       --resource string                         The resource of workload
+      --securityContext string                  the json string of security context of vineyard sidecar container
       --sidecar.cpu string                      the cpu requests and limits of vineyard container
       --sidecar.envs strings                    The environment variables of vineyardd
       --sidecar.image string                    the image of vineyardd (default "vineyardcloudnative/vineyardd:latest")
@@ -1717,6 +1647,8 @@ vineyardctl inject [flags]
       --sidecar.syncCRDs                        enable metrics of vineyardd (default true)
       --sidecar.volume.mountPath string         Set the mount path for the pvc
       --sidecar.volume.pvcname string           Set the pvc name for storing the vineyard objects persistently
+      --volume string                           the json string of vineyard sidecar container volume
+      --volumeMount string                      the json string of vineyard sidecar container volume mount
 ```
 
 ## `vineyardctl inject argo-workflow`
@@ -2318,6 +2250,7 @@ vineyardctl manager [flags]
       --leader-elect                       Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
       --metrics-bind-address string        The address the metric endpoint binds to. (default "127.0.0.1:8080")
       --scheduler-config-file string       The location of scheduler plugin's configuration file. (default "/etc/kubernetes/scheduler.yaml")
+      --webhook-cert-dir string            The directory to store the generated certificates. (default "/etc/webhook/certs")
 ```
 
 ## `vineyardctl put`

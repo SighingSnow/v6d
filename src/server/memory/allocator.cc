@@ -27,6 +27,7 @@ https://github.com/apache/arrow/blob/master/cpp/src/plasma/plasma_allocator.cc
 // under the License.
  */
 
+#include <sys/mman.h>
 #if defined(__linux__) || defined(__linux) || defined(linux) || \
     defined(__gnu_linux__)
 #include <sys/mount.h>
@@ -39,6 +40,7 @@ https://github.com/apache/arrow/blob/master/cpp/src/plasma/plasma_allocator.cc
 
 #include "server/memory/allocator.h"
 
+#include "common/util/logging.h"
 #include "server/memory/dlmalloc.h"
 #include "server/memory/mimalloc.h"
 
@@ -79,6 +81,10 @@ void* BulkAllocator::Memalign(const size_t bytes, const size_t alignment) {
   }
   if (mem != nullptr) {
     allocated_ += bytes;
+
+    // mark it as will need to pre-allocate physical memory
+    // and improve the followed memory write performance
+    madvise(mem, bytes, MADV_WILLNEED);
   }
   return mem;
 }

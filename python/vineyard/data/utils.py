@@ -26,6 +26,7 @@ import pyarrow as pa
 from vineyard._C import Object
 from vineyard._C import ObjectID
 from vineyard._C import ObjectMeta
+from vineyard._C import RemoteBlobBuilder
 
 if pickle.HIGHEST_PROTOCOL < 5:
     import pickle5 as pickle  # pylint: disable=import-error
@@ -128,9 +129,7 @@ def ensure_ipc_client(client, error_message=None):
     '''Check if the given client is an instance of IPCClient,
     raise ValueError if not.
     '''
-    from vineyard._C import IPCClient
-
-    if not isinstance(client, IPCClient):
+    if not client.is_ipc:
         if error_message is None:
             error_message = "Vineyard IPC client is required, got %s" % type(client)
         else:
@@ -144,29 +143,31 @@ def ensure_ipc_client(client, error_message=None):
 def build_buffer(
     client, address, size, *args, **kwargs
 ) -> Union["Object", "ObjectMeta", "ObjectID"]:
-    '''Build a blob in vineyard server for the given bytes or memoryview.
+    '''Build a blob or a remote blob in vineyard server
+        for the given bytes or memoryview.
 
     If address is None or size is 0, an empty blob will be returned.
     '''
-    ensure_ipc_client(
-        client,
-        "Vineyard RPC client cannot be used to create local blobs, "
-        "try using an IPC client or `rpc_client.create_remote_blob()`",
-    )
+    if client.is_rpc:
+        buffer = RemoteBlobBuilder(size)
+        if isinstance(address, (int, np.integer)):
+            buffer.copy(0, int(address), size)
+        elif address is not None:
+            buffer.copy(0, address)
+        return client.create_remote_blob(buffer)
 
-    if size == 0:
-        return client.create_empty_blob()
-    if address is None:
-        return client.create_empty_blob()
-    existing = client.find_shared_memory(address)
-    if existing is not None:
-        return client.get_meta(existing)
-    buffer = client.create_blob(size)
-    if isinstance(address, (int, np.integer)):
-        buffer.copy(0, int(address), size)
-    else:
-        buffer.copy(0, address)
-    return buffer.seal(client)
+    if client.is_ipc:
+        if size == 0 or address is None:
+            return client.create_empty_blob()
+        existing = client.find_shared_memory(address)
+        if existing is not None:
+            return client.get_meta(existing)
+        buffer = client.create_blob(size)
+        if isinstance(address, (int, np.integer)):
+            buffer.copy(0, int(address), size)
+        elif address is not None:
+            buffer.copy(0, address)
+        return buffer.seal(client)
 
 
 def build_numpy_buffer(client, array):
@@ -183,6 +184,8 @@ def build_numpy_buffer(client, array):
 def default_json_encoder(value):
     if isinstance(value, (np.integer, np.floating)):
         return value.item()
+    if isinstance(value, ObjectID):
+        return int(value)
     raise TypeError
 
 

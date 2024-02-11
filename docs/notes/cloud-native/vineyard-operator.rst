@@ -84,6 +84,33 @@ components will be created and managed by the vineyard operator:
         replicaset.apps/vineyard-controller-manager-5c6f4bc454   1         1         1       72s
         replicaset.apps/vineyardd-sample-5cc797668f              3         3         3       48s
 
+Also, if you want to use the custom vineyard socket path and mount something like /dev to the
+vineyard container, you could use the following YAML file:
+
+.. code:: yaml
+
+    $ cat <<EOF | kubectl apply -f -
+    apiVersion: k8s.v6d.io/v1alpha1
+    kind: Vineyardd
+    metadata:
+      name: vineyardd-sample
+    spec:
+      vineyard:
+        # only for host path
+        socket: /your/vineyard/socket/path
+      # you should set the securityContext.privileged to true
+      # if you want to mount /dev to the vineyard container
+      securityContext:
+        privileged: true
+      volumes:
+      - name: dev-volumes
+        hostPath:
+          path: /dev
+      volumeMounts:
+      - name: dev-volumes
+        mountPath: /dev
+    EOF
+
 For detailed configuration entries of vineyardd, please refer to `vineyardd CRD <../references/crds.md#vineyardd>`_.
 
 Installing vineyard as sidecar
@@ -149,19 +176,19 @@ Next, use the following YAML to inject the default sidecar into the pod.
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: job-deployment-with-default-sidecar
+      name: job-deployment
       namespace: vineyard-job
     spec:
       selector:
         matchLabels:
-          app: job-deployment-with-default-sidecar
+          app: job-deployment
       replicas: 2
       template:
         metadata:
           annotations:
             sidecar.v6d.io/name: "default"
           labels:
-            app: job-deployment-with-default-sidecar
+            app: job-deployment
             sidecar.v6d.io/enabled: "true"
         spec:
           containers:
@@ -179,12 +206,12 @@ Next, you could see the sidecar container injected into the pod.
 .. code:: yaml
 
     # get the default sidecar cr
-    $ kubectl get sidecar app-job-deployment-with-default-sidecar-default-sidecar -n vineyard-job -o yaml
+    $ kubectl get sidecar app-job-deployment-default-sidecar -n vineyard-job -o yaml
     apiVersion: k8s.v6d.io/v1alpha1
     kind: Sidecar
     metadata:
       # the default sidecar's name is your label selector + "-default-sidecar"
-      name: app-job-deployment-with-default-sidecar-default-sidecar
+      name: app-job-deployment-default-sidecar
       namespace: vineyard-job
     spec:
       metric:
@@ -192,7 +219,7 @@ Next, you could see the sidecar container injected into the pod.
         image: vineyardcloudnative/vineyard-grok-exporter:latest
         imagePullPolicy: IfNotPresent
       replicas: 2
-      selector: app=job-deployment-with-default-sidecar
+      selector: app=job-deployment
       service:
         port: 9600
         selector: rpc.vineyardd.v6d.io/rpc=vineyard-rpc
@@ -213,11 +240,11 @@ Next, you could see the sidecar container injected into the pod.
         streamThreshold: 80
         syncCRDs: true
     # get the injected Pod, here we only show the important part of the Pod
-    $ kubectl get pod -l app=job-deployment-with-default-sidecar -n vineyard-job -o yaml
+    $ kubectl get pod -l app=job-deployment -n vineyard-job -o yaml
     apiVersion: v1
     kind: Pod
     metadata:
-      name: job-deployment-with-default-sidecar-55664458f8-h4jzk
+      name: job-deployment-55664458f8-h4jzk
       namespace: vineyard-job
     spec:
       containers:
@@ -238,8 +265,7 @@ Next, you could see the sidecar container injected into the pod.
         - /bin/bash
         - -c
         - |
-          /usr/bin/wait-for-it.sh -t 60 etcd-for-vineyard.vineyard-job.svc.cluster.local:2379;
-          sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock
+          /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock
           --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard
           --etcd_endpoint http://etcd-for-vineyard:2379
         env:
@@ -289,6 +315,63 @@ sidecar cr as follows:
       vineyard:
         socket: /var/run/vineyard.sock
         size: 1024Mi
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: job-deployment-with-custom-sidecar
+      namespace: vineyard-job
+    spec:
+      selector:
+        matchLabels:
+          app: job-deployment-with-custom-sidecar
+      replicas: 2
+      template:
+        metadata:
+          annotations:
+            sidecar.v6d.io/name: "sidecar-sample"
+          labels:
+            app: job-deployment-with-custom-sidecar
+            sidecar.v6d.io/enabled: "true"
+        spec:
+          containers:
+          - name: job
+            image: ghcr.io/v6d-io/v6d/sidecar-job
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh", "-c", "python3 /job.py"]
+            env:
+            - name: JOB_NAME
+              value: v6d-workflow-demo-job
+    EOF
+
+Also, if you want to use the custom vineyard socket path and mount something like /dev to the
+vineyard container, you could use the following YAML file:
+
+.. code:: yaml
+
+    $ cat <<EOF | kubectl apply -f -
+    apiVersion: k8s.v6d.io/v1alpha1
+    kind: Sidecar
+    metadata:
+      name: sidecar-sample
+      namespace: vineyard-job
+    spec:
+      replicas: 2
+      selector: app=job-deployment-with-custom-sidecar
+      vineyard:
+        socket: /var/run/vineyard.sock
+        size: 1024Mi
+      # you should set the securityContext.privileged to true
+      # if you want to mount /dev to the vineyard container
+      securityContext:
+        privileged: true
+      volumes:
+      - name: dev-volumes
+        hostPath:
+          path: /dev
+      volumeMounts:
+      - name: dev-volumes
+        mountPath: /dev
     ---
     apiVersion: apps/v1
     kind: Deployment

@@ -27,6 +27,7 @@ on:
       - '**/*.rst'
       - '**/*.md'
       - '**/*.txt'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.repository }}-${{ github.event.number || github.head_ref || github.sha }}-${{ github.workflow }}
@@ -124,13 +125,12 @@ jobs:
           wget https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt update
-          sudo apt install -y libarrow-dev=11.0.0-1 \
-                              libarrow-dataset-dev=11.0.0-1 \
-                              libarrow-flight-dev=11.0.0-1 \
-                              libgandiva-dev=11.0.0-1 \
-                              libparquet-dev=11.0.0-1 \
-                              libplasma-dev=11.0.0-1 \
-                              libarrow-cuda-dev=11.0.0-1
+          sudo apt install -y libarrow-dev=14.0.1-1 \
+                              libarrow-dataset-dev=14.0.1-1 \
+                              libarrow-acero-dev=14.0.1-1 \
+                              libarrow-flight-dev=14.0.1-1 \
+                              libgandiva-dev=14.0.1-1 \
+                              libparquet-dev=14.0.1-1
 
           # install deps for java
           sudo apt install -y default-jdk-headless maven
@@ -313,11 +313,6 @@ jobs:
             rm -rf build/lib* build/bdist.*
             python3 setup_${pkg}.py bdist_wheel
           done
-
-          # build java SDK
-          pushd java
-          mvn clean package -T 1C -DskipTests
-          popd
 
           # install python packages
           twine check dist/*.whl

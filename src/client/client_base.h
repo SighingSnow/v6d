@@ -102,6 +102,10 @@ class ClientBase {
   Status CreateData(const json& tree, ObjectID& id, Signature& signature,
                     InstanceID& instance_id);
 
+  Status CreateData(const std::vector<json>& trees, std::vector<ObjectID>& ids,
+                    std::vector<Signature>& signatures,
+                    std::vector<InstanceID>& instance_ids);
+
   /**
    * @brief Create the metadata in the vineyard server, after created, the
    * resulted object id in the `meta_data` will be filled.
@@ -112,6 +116,9 @@ class ClientBase {
    * @return Status that indicates whether the create action has succeeded.
    */
   Status CreateMetaData(ObjectMeta& meta_data, ObjectID& id);
+
+  Status CreateMetaData(std::vector<ObjectMeta>& meta_datas,
+                        std::vector<ObjectID>& ids);
 
   /**
    * @brief Create the metadata in the vineyard server with specified instance
@@ -128,6 +135,10 @@ class ClientBase {
    */
   Status CreateMetaData(ObjectMeta& meta_data, InstanceID const& instance_id,
                         ObjectID& id);
+
+  Status CreateMetaData(std::vector<ObjectMeta>& meta_datas,
+                        InstanceID const& instance_id,
+                        std::vector<ObjectID>& ids);
 
   /**
    * @brief Get the meta-data of the requested object
@@ -424,6 +435,13 @@ class ClientBase {
   Status Clear();
 
   /**
+   * @brief Trim the memory pool inside the shared memory allocator to return
+   *        the unused physical memory back to the OS kernel, like the
+   *        `malloc_trim` API from glibc.
+   */
+  Status MemoryTrim(bool& trimmed);
+
+  /**
    * @brief Associate given labels to an existing object.
    *
    * @param object Object to be labeled.
@@ -504,6 +522,20 @@ class ClientBase {
   std::string const& RPCEndpoint() { return this->rpc_endpoint_; }
 
   /**
+   * @brief Check if the client is an IPC client.
+   *
+   * @return True if the client is an IPC client, otherwise false.
+   */
+  virtual bool IsIPC() const { return false; }
+
+  /**
+   * @brief Check if the client is a RPC client.
+   *
+   * @return True if the client is a RPC client, otherwise false.
+   */
+  virtual bool IsRPC() const { return false; }
+
+  /**
    * @brief Get the instance id of the connected vineyard server.
    *
    * Note that for RPC client the instance id is not available.
@@ -580,6 +612,16 @@ class ClientBase {
    */
   Status Debug(const json& debug, json& tree);
 
+  inline bool compression_enabled() const { return compression_enabled_; }
+
+  void set_compression_enabled(bool enabled = true) {
+    if (support_rpc_compression_ & enabled) {
+      compression_enabled_ = true;
+    } else {
+      compression_enabled_ = false;
+    }
+  }
+
  protected:
   Status doWrite(const std::string& message_out);
 
@@ -594,9 +636,13 @@ class ClientBase {
   SessionID session_id_;
   InstanceID instance_id_;
   std::string server_version_;
+  bool support_rpc_compression_ = false;
 
   // A mutex which protects the client.
   mutable std::recursive_mutex client_mutex_;
+
+  // Options
+  bool compression_enabled_ = false;
 };
 
 struct InstanceStatus {

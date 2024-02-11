@@ -339,11 +339,6 @@ const char* Blob_address = R"doc(
 The memory address value of this blob.
 )doc";
 
-const char* Blob_buffer = R"doc(
-The readonly buffer behind this blob. The result buffer has type
-:code:`memoryview`.
-)doc";
-
 const char* BlobBuilder = R"doc(
 :class:`BlobBuilder` is the builder for creating a finally immutable blob in
 vineyard server.
@@ -373,7 +368,7 @@ Shrink the blob builder to the given size if it is not sealed yet.
 )doc";
 
 const char* BlobBuilder_copy = R"doc(
-.. method:: copy(self, offset: int, ptr: int, size: int)
+.. method:: copy(self, offset: int, ptr: int, size: int, concurrency: int = 6)
     :noindex:
 
 Copy the given address to the given offset.
@@ -381,11 +376,6 @@ Copy the given address to the given offset.
 
 const char* BlobBuilder_address = R"doc(
 The memory address value of this blob builder.
-)doc";
-
-const char* BlobBuilder_buffer = R"doc(
-The writeable buffer behind this blob builder. The result buffer has type
-:code:`memoryview`, and it is a mutable one.
 )doc";
 
 const char* RemoteBlob = R"doc(
@@ -412,11 +402,6 @@ The size of this blob.
 
 const char* RemoteBlob_address = R"doc(
 The memory address value of this blob.
-)doc";
-
-const char* RemoteBlob_buffer = R"doc(
-The readonly buffer behind this blob. The result buffer has type
-:code:`memoryview`.
 )doc";
 
 const char* RemoteBlobBuilder = R"doc(
@@ -476,7 +461,7 @@ Abort the blob builder if it is not sealed yet.
 )doc";
 
 const char* RemoteBlobBuilder_copy = R"doc(
-.. method:: copy(self, offset: int, ptr: int, size: int)
+.. method:: copy(self, offset: int, ptr: int, size: int, concurrency: int = 6)
     :noindex:
 
 Copy the given address to the given offset.
@@ -484,11 +469,6 @@ Copy the given address to the given offset.
 
 const char* RemoteBlobBuilder_address = R"doc(
 The memory address value of this blob builder.
-)doc";
-
-const char* RemoteBlobBuilder_buffer = R"doc(
-The writeable buffer behind this blob builder. The result buffer has type
-:code:`memoryview`, and it is a mutable one.
 )doc";
 
 const char* InstanceStatus = R"doc(
@@ -557,7 +537,8 @@ Base class for vineyard object builders.
 )doc";
 
 const char* ClientBase_create_metadata = R"doc(
-.. method:: create_metadata(metadata: ObjectMeta) -> ObjectMeta
+.. method:: create_metadata(metadata: Union[ObjectMeta, List[ObjectMeta]])
+                -> Union[ObjectMeta, List[ObjectMeta]]
     :noindex:
 
 Create metadata in vineyardd.
@@ -567,9 +548,12 @@ Parameters:
         The metadata that will be created on vineyardd.
 
 Returns:
-    The result created metadata.
+    Union[ObjectMeta, List[ObjectMeta]]:
+        The result created metadata.
 
-.. method:: create_metadata(metadata: ObjectMeta, instance_id: InstanceID) -> ObjectMeta
+.. method:: create_metadata(metadata: Union[ObjectMeta, List[ObjectMeta]],
+                            instance_id: InstanceID)
+                -> Union[ObjectMeta, List[ObjectMeta]]
     :noindex:
 
 Create metadata in vineyardd with a specified instance id.
@@ -581,7 +565,8 @@ Parameters:
         The instance to place the object metadata.
 
 Returns:
-    The result created metadata.
+    Union[ObjectMeta, List[ObjectMeta]]:
+        The result created metadata.
 )doc";
 
 const char* ClientBase_delete = R"doc(
@@ -773,6 +758,16 @@ const char* ClientBase_clear = R"doc(
 Drop all objects that visible to the current instance in the vineyard cluster.
 )doc";
 
+const char* ClientBase_memory_trim = R"doc(
+.. method:: memory_trim() -> bool
+    :noindex:
+
+Trim the memory pool inside the shared memory allocator to return the unused
+physical memory back to the OS kernel, like the `malloc_trim` API from glibc.
+
+Returns True if it actually released any memory.
+)doc";
+
 const char* ClientBase_reset = R"doc(
 .. method:: reset() -> None
     :noindex:
@@ -830,22 +825,42 @@ The version number string of connected vineyard server, in the format of semver:
 :code:`MAJOR.MINOR.PATCH`.
 )doc";
 
+const char* ClientBase_is_ipc = R"doc(
+Whether the client is connected to vineyard server via UNIX domain socket.
+)doc";
+
+const char* ClientBase_is_rpc = R"doc(
+Whether the client is connected to vineyard server via RPC endpoint.
+)doc";
+
 const char* IPCClient = R"doc(
 IPC client that connects to vineyard instance's UNIX domain socket.
 )doc";
 
 const char* IPCClient_create_blob = R"doc(
-.. method:: create_blob(size: int) -> Blob
+.. method:: create_blob(size: int) -> BlobBuilder
     :noindex:
 
-Allocate a blob in vineyard server.
+    Allocate a blob in vineyard server.
 
-Parameters:
-    size: int
-        The size of blob that will be allocated on vineyardd.
+    Parameters:
+        size: int
+            The size of blob that will be allocated on vineyardd.
 
-Returns:
-    BlobBuilder
+    Returns:
+        BlobBuilder
+
+.. method:: create_blob(sizes: List[int]) -> List[BlobBuilder]
+    :noindex:
+
+    Allocate blobs in vineyard server.
+
+    Parameters:
+        size: List[int]
+            The size of blobs that will be allocated on vineyardd.
+
+    Returns:
+        List[BlobBuilder]
 )doc";
 
 const char* IPCClient_create_empty_blob = R"doc(
@@ -1055,9 +1070,6 @@ Close the client.
 
 const char* RPCClient = R"doc(
 RPC client that connects to vineyard instance's RPC endpoints.
-
-The RPC client can only access the metadata of objects, any access to the blob payload
-will trigger a :code:`RuntimeError` exception.
 )doc";
 
 const char* RPCClient_get_object = R"doc(
@@ -1088,34 +1100,51 @@ Returns:
 )doc";
 
 const char* RPCClient_create_remote_blob = R"doc(
-.. method:: create_remote_blob(blob_builder: RemoteBlobBuilder) -> ObjectID
+.. method:: create_remote_blob(blob_builder: RemoteBlobBuilder) -> ObjectMeta
     :noindex:
 
-Put the remote blob to connected remote vineyard instance. The :code:`blob_builder`
-is assumed to be ready and modification on the :code:`blob_builder` after creation
-won't take effect.
+    Put the remote blob to connected remote vineyard instance. The :code:`blob_builder`
+    is assumed to be ready and modification on the :code:`blob_builder` after creation
+    won't take effect.
 
-Note that creating remote blobs requires network transfer and may yields significate
-overhead.
+    Note that creating remote blobs requires network transfer and may yields significate
+    overhead.
 
-.. code:: python
+    .. code:: python
 
-    vineyard_rpc_client = vineyard.connect(*vineyard_endpoint.split(':'))
+        vineyard_rpc_client = vineyard.connect(*vineyard_endpoint.split(':'))
 
-    buffer_writer = RemoteBlobBuilder(len(payload))
-    buffer_writer.copy(0, payload)
-    blob_id = vineyard_rpc_client.create_remote_blob(buffer_writer)
+        buffer_writer = RemoteBlobBuilder(len(payload))
+        buffer_writer.copy(0, payload)
+        blob_meta = vineyard_rpc_client.create_remote_blob(buffer_writer)
 
-Parameters:
-    blob_builder: RemoteBlobBuilder
-        The remote blob to create.
+    Parameters:
+        blob_builder: RemoteBlobBuilder
+            The remote blob to create.
 
-Returns:
-    ObjectID
+    Returns:
+        ObjectMeta
 
-See Also:
-    RPCClient.get_remote_blob
-    RPCClient.get_remote_blobs
+    See Also:
+        RPCClient.get_remote_blob
+        RPCClient.get_remote_blobs
+
+.. method:: create_remote_blob(blob_builders: List[RemoteBlobBuilder]) -> List[ObjectMeta]
+    :noindex:
+
+    Put the remote blobs to connected remote vineyard instance. The :code:`blob_builders`
+    is assumed to be ready and modification on the :code:`blob_builder` after creation
+    won't take effect.
+
+    Note that creating remote blobs requires network transfer and may yields significate
+    overhead.
+
+    Returns:
+        List[ObjectMeta]
+
+    See Also:
+        RPCClient.get_remote_blob
+        RPCClient.get_remote_blobs
 )doc";
 
 const char* RPCClient_get_remote_blob = R"doc(
@@ -1241,6 +1270,12 @@ Returns:
 
 const char* RPCClient_close = R"doc(
 Close the client.
+)doc";
+
+const char* RPCClient_is_fetchable = R"doc(
+Whether the rpc client is able to fetch objects from the connected vineyard server.
+When the instance connected by the rpc client is not the same as the instance
+of metadata, the rpc client is not able to fetch the object.
 )doc";
 
 const char* RPCClient_remote_instance_id = R"doc(

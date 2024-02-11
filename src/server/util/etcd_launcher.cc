@@ -101,24 +101,15 @@ Status EtcdLauncher::LaunchEtcdServer(
 
   std::string etcd_endpoint_ip;
   if (!validate_advertise_hostname(etcd_endpoint_ip, endpoint_host_)) {
-    return Status::Invalid("Cannot resolve the etcd endpoint '" +
-                           endpoint_host_ + "'");
+    // resolving failure means we need to wait the srv name becomes ready in the
+    // DNS side
+    return Status::OK();
   }
 
   etcd_client.reset(new etcd::Client(etcd_endpoint));
   if (probeEtcdServer(etcd_client, sync_lock)) {
     return Status::OK();
   }
-
-  LOG(INFO) << "Starting the etcd server";
-
-  // resolve etcd binary
-  std::string etcd_cmd = etcd_spec_["etcd_cmd"].get_ref<std::string const&>();
-  if (etcd_cmd.empty()) {
-    setenv("LC_ALL", "C", 1);  // makes boost's path works as expected.
-    etcd_cmd = boost::process::search_path("etcd").string();
-  }
-  LOG(INFO) << "Found etcd at: " << etcd_cmd;
 
   RETURN_ON_ERROR(initHostInfo());
   bool try_launch = false;
@@ -128,22 +119,38 @@ Status EtcdLauncher::LaunchEtcdServer(
   }
 
   if (!try_launch) {
-    LOG(INFO) << "Will not launch an etcd instance.";
-    int retries = 0;
-    while (retries < max_probe_retries) {
-      if (probeEtcdServer(etcd_client, sync_lock)) {
-        break;
-      }
-      retries += 1;
-      sleep(1);
-    }
-    if (retries >= max_probe_retries) {
-      return Status::EtcdError(
-          "Etcd has been launched but failed to connect to it");
-    } else {
-      return Status::OK();
-    }
+    return Status::OK();
   }
+
+  LOG(INFO) << "Starting the etcd server";
+
+  // resolve etcd binary
+  std::string etcd_cmd = etcd_spec_.value("etcd_cmd", "");
+  if (etcd_cmd.empty()) {
+    setenv("LC_ALL", "C", 1);  // makes boost's path works as expected.
+    etcd_cmd = boost::process::search_path("etcd").string();
+  }
+  if (etcd_cmd.empty()) {
+    // try en_US.UTF-8 and search again.
+    setenv("LC_ALL", "en_US.UTF-8", 1);
+    etcd_cmd = boost::process::search_path("etcd").string();
+  }
+  if (etcd_cmd.empty()) {
+    std::string error_message =
+        "Failed to find etcd binary, please specify its path using the "
+        "`--etcd_cmd` argument and try again.";
+    LOG(WARNING) << error_message;
+    return Status::EtcdError("Failed to find etcd binary");
+  }
+  if (!ghc::filesystem::exists(ghc::filesystem::path(etcd_cmd))) {
+    std::string error_message =
+        "The etcd binary '" + etcd_cmd +
+        "' does not exist, please specify the correct path using "
+        "the `--etcd_cmd` argument and try again.";
+    LOG(WARNING) << error_message;
+    return Status::EtcdError("The etcd binary does not exist");
+  }
+  LOG(INFO) << "Found etcd at: " << etcd_cmd;
 
   std::string host_to_advertise;
   if (host_to_advertise.empty()) {
@@ -193,13 +200,28 @@ Status EtcdLauncher::LaunchEtcdServer(
   args.emplace_back(peer_endpoint);
 
   // use a random etcd data dir
-  std::string file_template = "/tmp/vineyard-etcd-XXXXXX";
-  char* data_dir = mkdtemp(const_cast<char*>(file_template.c_str()));
-  if (data_dir == nullptr) {
-    return Status::EtcdError(
-        "Failed to create a temporary directory for etcd data");
+  etcd_data_dir_ = etcd_spec_.value("etcd_data_dir", "");
+  if (etcd_data_dir_.empty()) {
+    std::string file_template = "/tmp/vineyard-etcd-XXXXXX";
+    char* data_dir = mkdtemp(const_cast<char*>(file_template.c_str()));
+    if (data_dir == nullptr) {
+      return Status::EtcdError(
+          "Failed to create a temporary directory for etcd data");
+    }
+    etcd_data_dir_ = data_dir;
   }
-  etcd_data_dir_ = data_dir;
+  // prepare the data dir
+  if (!ghc::filesystem::exists(ghc::filesystem::path(etcd_data_dir_))) {
+    std::error_code err;
+    ghc::filesystem::create_directories(ghc::filesystem::path(etcd_data_dir_),
+                                        err);
+    if (err) {
+      return Status::EtcdError("Failed to create etcd data directory: " +
+                               err.message());
+    }
+  }
+  LOG(INFO) << "Vineyard will use '" << etcd_data_dir_
+            << "' as the data directory of etcd";
   args.emplace_back("--data-dir");
   args.emplace_back(etcd_data_dir_);
 
